@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchWordOfTheDayWord, fetchMerriamEntry } from "@/lib/merriam";
-import { setWordOfTheDay, type WordOfTheDay } from "@/lib/kv";
+import { setWordOfTheDay, isKvConfigured, type WordOfTheDay } from "@/lib/kv";
 
 export async function GET(request: Request) {
   // Verify cron secret in production (Vercel sends this header)
@@ -48,6 +48,7 @@ export async function GET(request: Request) {
       success: true,
       word: wordData.word,
       date: today,
+      kvConnected: isKvConfigured(),
     });
   } catch (error) {
     console.error("Cron job failed:", error);

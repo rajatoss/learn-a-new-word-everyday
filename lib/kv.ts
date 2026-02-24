@@ -29,17 +29,26 @@ if (!globalStore.__devKvStore) {
 }
 const memStore = globalStore.__devKvStore;
 
-function isKvConfigured(): boolean {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  return !!(url && token && url.startsWith("https://"));
+// Vercel KV uses KV_REST_API_URL; Upstash Redis integration uses UPSTASH_REDIS_REST_URL
+function getKvCredentials(): { url: string; token: string } | null {
+  const url =
+    process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token && url.startsWith("https://")) {
+    return { url, token };
+  }
+  return null;
+}
+
+export function isKvConfigured(): boolean {
+  return getKvCredentials() !== null;
 }
 
 function getKv() {
-  return createClient({
-    url: process.env.KV_REST_API_URL!,
-    token: process.env.KV_REST_API_TOKEN!,
-  });
+  const creds = getKvCredentials();
+  if (!creds) throw new Error("KV not configured");
+  return createClient(creds);
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {
