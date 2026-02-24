@@ -1,4 +1,4 @@
-import { createClient } from "@vercel/kv";
+import { createClient, type RedisClientType } from "redis";
 
 export interface WordOfTheDay {
   word: string;
@@ -17,45 +17,43 @@ export interface WordOfTheDay {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory fallback for local development (when KV credentials aren't set)
-// Attach to globalThis so the store survives Next.js hot reloads / module re-imports
+// In-memory fallback for local development (when REDIS_URL isn't set)
 // ---------------------------------------------------------------------------
 
 const globalStore = globalThis as unknown as {
   __devKvStore?: Map<string, unknown>;
+  __redisClient?: RedisClientType;
 };
 if (!globalStore.__devKvStore) {
   globalStore.__devKvStore = new Map<string, unknown>();
 }
 const memStore = globalStore.__devKvStore;
 
-// Vercel KV uses KV_REST_API_URL; Upstash Redis integration uses UPSTASH_REDIS_REST_URL
-function getKvCredentials(): { url: string; token: string } | null {
-  const url =
-    process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token =
-    process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (url && token && url.startsWith("https://")) {
-    return { url, token };
-  }
-  return null;
-}
-
 export function isKvConfigured(): boolean {
-  return getKvCredentials() !== null;
+  const url = process.env.REDIS_URL;
+  return !!(url && url.startsWith("redis://"));
 }
 
-function getKv() {
-  const creds = getKvCredentials();
-  if (!creds) throw new Error("KV not configured");
-  return createClient(creds);
+async function getRedis(): Promise<RedisClientType> {
+  if (globalStore.__redisClient?.isOpen) {
+    return globalStore.__redisClient;
+  }
+  const client = createClient({
+    url: process.env.REDIS_URL,
+  }) as RedisClientType;
+  await client.connect();
+  globalStore.__redisClient = client;
+  return client;
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {
   if (!isKvConfigured()) {
     return (memStore.get(key) as T) ?? null;
   }
-  return getKv().get<T>(key);
+  const redis = await getRedis();
+  const value = await redis.get(key);
+  if (!value) return null;
+  return JSON.parse(value) as T;
 }
 
 async function kvSet(key: string, value: unknown): Promise<void> {
@@ -63,7 +61,8 @@ async function kvSet(key: string, value: unknown): Promise<void> {
     memStore.set(key, value);
     return;
   }
-  await getKv().set(key, value);
+  const redis = await getRedis();
+  await redis.set(key, JSON.stringify(value));
 }
 
 // ---------------------------------------------------------------------------
