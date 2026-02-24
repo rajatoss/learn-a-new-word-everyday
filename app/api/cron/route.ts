@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { fetchWordOfTheDayWord, fetchMerriamEntry } from "@/lib/merriam";
-import { setWordOfTheDay, isKvConfigured, type WordOfTheDay } from "@/lib/kv";
+import { setWordOfTheDay, type WordOfTheDay } from "@/lib/kv";
 
 export async function GET(request: Request) {
   // Verify cron secret in production (Vercel sends this header)
-  const authHeader = request.headers.get("authorization");
-  if (
-    process.env.CRON_SECRET &&
-    authHeader !== `Bearer ${process.env.CRON_SECRET}`
-  ) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   try {
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
           : "",
     };
 
-    // Step 4: Store in Vercel KV
+    // Step 4: Store in Redis
     await setWordOfTheDay(wordData);
 
     console.log(`Cron: Successfully stored word "${word}" for ${today}`);
@@ -48,7 +48,6 @@ export async function GET(request: Request) {
       success: true,
       word: wordData.word,
       date: today,
-      kvConnected: isKvConfigured(),
     });
   } catch (error) {
     console.error("Cron job failed:", error);
